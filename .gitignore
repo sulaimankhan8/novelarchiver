@@ -1,0 +1,54 @@
+# =====================
+# Global
+# =====================
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor
+.vscode/
+.idea/
+
+# =====================
+# Node
+# =====================
+node_modules/
+
+# =====================
+# Build outputs & binaries
+# =====================
+*.exe
+*.apk
+build/bin/
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+crash.log
+
+# Local library data (never commit scraped books)
+/novels/
+/library/
+
+# Go core built by build_apk.ps1
+android/app/libs/
+
+# Release signing (keep your key and passwords out of git)
+android/keystore.properties
+*.jks
+*.keystore
+
+# Saved site pages / chapters are local test data only (copyrighted text; never publish)
+test-fixtures/pages/
+test-fixtures/sample-chapters/
+test-fixtures/novels.json

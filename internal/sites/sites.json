@@ -1,0 +1,406 @@
+{
+  "$schema_note": "Parser profiles, one per site. Field meanings are in sites/README.md. Verified 2026-11-22 against live pages.",
+  "version": 1,
+  "sites": [
+    {
+      "id": "novelbin",
+      "name": "NovelBin",
+      "domains": [
+        "novelbin.xyz",
+        "novelbin.com",
+        "novelbin.me",
+        "novelbin.net"
+      ],
+      "status": "browser-only",
+      "fetchMode": "browser",
+      "verified": "Verified 2026-11-22 through the in-app browser: discovery (1,432 chapters for LotM) and chapter downloads work. The JSON CDN returns 403 to plain HTTP but works from inside the page. novelbin.com/.me return 503.",
+      "input": {
+        "novelUrl": "^https?://(www\\.)?novelbin\\.[a-z]+/(novel|b|novel-book)/(?<slug>[a-z0-9-]+)/?$",
+        "chapterUrl": "^https?://(www\\.)?novelbin\\.[a-z]+/(read|b|novel-book)/(?<slug>[a-z0-9-]+)/chapter-(?<num>\\d+)",
+        "novelFromChapter": "slug -> {origin}/novel/{slug}"
+      },
+      "novel": {
+        "api": "https://boxnovela.b-cdn.net/novel/{slug}.json",
+        "fields": {
+          "id": "id",
+          "title": "title|name",
+          "author": "author",
+          "cover": "cover",
+          "description": "description",
+          "status": "status"
+        }
+      },
+      "toc": {
+        "strategy": "api",
+        "api": "https://boxnovela.b-cdn.net/chapters/{id}.json",
+        "titleField": "title|name"
+      },
+      "chapter": {
+        "strategy": "api",
+        "api": "https://boxnovela.b-cdn.net/read/{id}/{index}.json",
+        "contentField": "content",
+        "titleField": "title",
+        "notes": "Index is 0-based. Content is already clean HTML with <p>/<em>/<strong>. The old raw files repeated the <h3> title twice, so de-duplicate it."
+      }
+    },
+    {
+      "id": "novelfull",
+      "name": "NovelFull",
+      "domains": [
+        "novelfull.com",
+        "novelfull.net"
+      ],
+      "status": "verified",
+      "fetchMode": "http",
+      "input": {
+        "novelUrl": "^https?://(www\\.)?novelfull\\.[a-z]+/(?<slug>[a-z0-9-]+)\\.html",
+        "chapterUrl": "^https?://(www\\.)?novelfull\\.[a-z]+/(?<slug>[a-z0-9-]+)/chapter-[^/]+\\.html",
+        "novelFromChapter": "a.truyen-title@href"
+      },
+      "novel": {
+        "title": "h3.title, meta[property='og:title']@content",
+        "author": ".info a[href*='/author/']",
+        "cover": ".book img@src",
+        "description": ".desc-text"
+      },
+      "toc": {
+        "strategy": "paginated",
+        "items": "#list-chapter ul.list-chapter li a",
+        "pageUrl": "{novelUrl}?page={n}",
+        "lastPage": "ul.pagination li.last a@href ~ page=(\\d+)",
+        "notes": "50 chapters per page. Lord of the Mysteries has 29 pages."
+      },
+      "chapter": {
+        "title": "a.chapter-title@title",
+        "content": "#chapter-content",
+        "remove": [
+          "iframe",
+          "script",
+          "div[align='center']",
+          ".ads",
+          "[id^='pf-']"
+        ],
+        "next": "#next_chap@href"
+      }
+    },
+    {
+      "id": "readnovelfull",
+      "name": "ReadNovelFull (also AllNovelFull)",
+      "domains": [
+        "readnovelfull.com",
+        "allnovelfull.net",
+        "allnovelfull.com"
+      ],
+      "status": "verified",
+      "fetchMode": "http",
+      "input": {
+        "novelUrl": "^https?://(www\\.)?(readnovelfull|allnovelfull)\\.[a-z]+/(?<slug>[a-z0-9-]+?)(-v\\d+)?\\.html$",
+        "chapterUrl": "^https?://(www\\.)?(readnovelfull|allnovelfull)\\.[a-z]+/(?<slug>[a-z0-9-]+)/chapter-[^/]+\\.html",
+        "novelFromChapter": "a.novel-title@href"
+      },
+      "novel": {
+        "title": "h3.title, h1",
+        "author": ".info-meta a[href*='/authors/']",
+        "cover": ".book img@src",
+        "description": ".desc-text",
+        "id": "[data-novel-id]@data-novel-id"
+      },
+      "toc": {
+        "strategy": "ajax",
+        "url": "{origin}/ajax/chapter-archive?novelId={id}",
+        "items": "ul.list-chapter li a",
+        "notes": "A single request returns every chapter (1,432 for LotM)."
+      },
+      "chapter": {
+        "title": "a.chr-title@title",
+        "content": "#chr-content",
+        "remove": [
+          "iframe",
+          "script",
+          "div[id^='pf-']",
+          ".ads"
+        ],
+        "next": "#next_chap@href"
+      }
+    },
+    {
+      "id": "royalroad",
+      "name": "Royal Road",
+      "domains": [
+        "royalroad.com"
+      ],
+      "status": "browser-only",
+      "fetchMode": "browser",
+      "verified": "Verified 2026-11-22 through the in-app browser (chapters 1-4 downloaded, decoy paragraphs removed). Cloudflare serves 'Just a moment...' (403) to Go's HTTP client.",
+      "input": {
+        "novelUrl": "^https?://(www\\.)?royalroad\\.com/fiction/(?<id>\\d+)(/[^/]+)?/?$",
+        "chapterUrl": "^https?://(www\\.)?royalroad\\.com/fiction/(?<id>\\d+)/[^/]+/chapter/\\d+",
+        "novelFromChapter": "url ~ ^(.*/fiction/\\d+/[^/]+)"
+      },
+      "novel": {
+        "title": ".fic-title h1",
+        "author": ".fic-title h4 a",
+        "cover": ".cover-art-container img@src",
+        "description": ".description .hidden-content"
+      },
+      "toc": {
+        "strategy": "inline",
+        "items": "table#chapters tr.chapter-row td:first-child a",
+        "notes": "The whole TOC is on the fiction page."
+      },
+      "chapter": {
+        "title": "h1.font-white",
+        "content": ".chapter-inner.chapter-content",
+        "remove": [
+          "script",
+          ".author-note-portlet"
+        ],
+        "removeHiddenByPageCss": true,
+        "next": "a.btn-primary[href*='/chapter/']:contains('Next')@href",
+        "notes": "Paragraph classes are randomised. The page CSS hides decoy anti-piracy paragraphs (display:none), and those must be dropped. System screens are often <table> elements, so keep tables."
+      }
+    },
+    {
+      "id": "wuxiaworld",
+      "name": "WuxiaWorld",
+      "domains": [
+        "wuxiaworld.com"
+      ],
+      "status": "verified",
+      "fetchMode": "http",
+      "input": {
+        "novelUrl": "^https?://(www\\.)?wuxiaworld\\.com/novel/(?<slug>[a-z0-9-]+)/?$",
+        "chapterUrl": "^https?://(www\\.)?wuxiaworld\\.com/novel/(?<slug>[a-z0-9-]+)/[a-z0-9-]+",
+        "novelFromChapter": "url ~ ^(.*/novel/[a-z0-9-]+)"
+      },
+      "novel": {
+        "jsonLd": "Book",
+        "title": "h1",
+        "cover": "meta[property='og:image']@content",
+        "description": ".novel-about-detail",
+        "firstChapter": "a[href*='/novel/{slug}/']@href"
+      },
+      "toc": {
+        "strategy": "next-link",
+        "notes": "The full TOC comes from a gRPC API (api2.wuxiaworld.com). Simpler: start at the first chapter and follow the embedded JSON 'nextChapter.slug'. Chapters with isFree:false or a karmaPrice are paid, so stop or skip them and report it to the user."
+      },
+      "chapter": {
+        "title": "[data-testid='title']",
+        "content": ".chapter-content .fr-view",
+        "remove": [
+          "script",
+          "button"
+        ],
+        "next": "embedded-json:nextChapter.slug -> /novel/{slug}/{value}"
+      }
+    },
+    {
+      "id": "freewebnovel",
+      "name": "FreeWebNovel",
+      "domains": [
+        "freewebnovel.com"
+      ],
+      "status": "verified",
+      "fetchMode": "http",
+      "input": {
+        "novelUrl": "^https?://(www\\.)?freewebnovel\\.com/novel/(?<slug>[a-z0-9-]+)/?$",
+        "chapterUrl": "^https?://(www\\.)?freewebnovel\\.com/novel/(?<slug>[a-z0-9-]+)/chapter-(?<num>\\d+)",
+        "novelFromChapter": "h1.tit a@href"
+      },
+      "novel": {
+        "title": "meta[property='og:novel:novel_name']@content",
+        "author": "meta[property='og:novel:author']@content",
+        "cover": "meta[property='og:image']@content",
+        "description": ".m-desc .txt",
+        "status": "meta[property='og:novel:status']@content",
+        "latestChapterUrl": "meta[property='og:novel:lastest_chapter_url']@content"
+      },
+      "toc": {
+        "strategy": "sequential",
+        "pattern": "{novelUrl}/chapter-{n}",
+        "from": 1,
+        "to": "latestChapterUrl ~ chapter-(\\d+)",
+        "fallback": "next-link",
+        "notes": "The novel page lists only the first 40 chapters (ul#idData). URLs are sequential, so build 1..N."
+      },
+      "chapter": {
+        "title": "span.chapter",
+        "content": "#article",
+        "remove": [
+          "script",
+          "iframe",
+          "div[align='center']"
+        ],
+        "next": "#next_url@href"
+      }
+    },
+    {
+      "id": "novelfire",
+      "name": "NovelFire (formerly LightNovelPub/LightNovelWorld)",
+      "domains": [
+        "novelfire.net",
+        "novelphoenix.com",
+        "readnovel.site"
+      ],
+      "status": "partial",
+      "fetchMode": "http+browser",
+      "verified": "Verified 2026-11-22: TOC over plain HTTP, chapters through the in-app browser. Chapter pages send non-browsers to a JS 'Loading...' page (readnovel.site), which then redirects to the mirror novelphoenix.com. That works in a real browser.",
+      "input": {
+        "novelUrl": "^https?://(www\\.)?novelfire\\.net/book/(?<slug>[a-z0-9-]+)/?$",
+        "chapterUrl": "^https?://(www\\.)?(novelfire\\.net/book|novelphoenix\\.com/novel)/(?<slug>[a-z0-9-]+)/chapter-(?<num>\\d+)",
+        "novelFromChapter": "slug -> https://novelfire.net/book/{slug}"
+      },
+      "novel": {
+        "title": "h1.novel-title",
+        "author": ".author a span, .author span[itemprop='author']",
+        "cover": "figure.cover img@data-src|src",
+        "description": ".summary .content"
+      },
+      "toc": {
+        "strategy": "paginated",
+        "pageUrl": "{novelUrl}/chapters?page={n}",
+        "items": "ul.chapter-list li a",
+        "lastPage": ".pagination a.page-link@href ~ page=(\\d+) (max)",
+        "notes": "100 per page. Works over plain HTTP."
+      },
+      "chapter": {
+        "fetchMode": "browser",
+        "title": ".chapter-title",
+        "content": "#chapter-container",
+        "remove": [
+          "[data-chapter-ad]",
+          ".nf-ads",
+          "iframe",
+          "script"
+        ],
+        "next": "a[rel='next'].nextchap@href"
+      }
+    },
+    {
+      "id": "webnovel",
+      "name": "Webnovel (Qidian International)",
+      "domains": [
+        "webnovel.com"
+      ],
+      "status": "browser-only",
+      "fetchMode": "browser",
+      "verified": "Verified 2026-11-22 through the in-app browser: catalog (1,274 chapters, 1,239 paid and skipped) and free chapters download. Cloudflare serves 'Just a moment...' (403) to Go's HTTP client. The catalog is at /book/{id}/catalog. Most later chapters are paid or locked, so only free chapters can be saved.",
+      "input": {
+        "novelUrl": "^https?://(www\\.)?webnovel\\.com/book/(?:[a-z0-9-]+_)?(?<id>\\d+)/?$",
+        "chapterUrl": "^https?://(www\\.)?webnovel\\.com/book/(?:[a-z0-9-]+_)?(?<id>\\d+)/(?:[a-z0-9-]+_)?\\d+",
+        "novelFromChapter": "id -> https://www.webnovel.com/book/{id}"
+      },
+      "novel": {
+        "title": "meta[property='og:title']@content",
+        "author": "meta[property='og:author']@content",
+        "cover": "meta[property='og:image']@content",
+        "description": "meta[property='og:description']@content",
+        "tags": "meta[property='og:tag']@content"
+      },
+      "toc": {
+        "strategy": "inline",
+        "pageUrl": "{novelUrl}/catalog",
+        "items": ".volume-item li a:has(i._num)",
+        "lockedMarker": "svg._icon",
+        "notes": "Volume 0 (auxiliary) entries have no number and are skipped. A lock icon marks paid chapters."
+      },
+      "chapter": {
+        "title": ".cha-tit h1",
+        "content": ".cha-words",
+        "remove": [
+          "script",
+          ".cha-bts",
+          ".para-comment",
+          "[class*='j_para_comment']",
+          ".cha-paragraph .pr > :not(p)"
+        ],
+        "next": "link[rel=next]@href",
+        "notes": "Verified 2026-11-22 through the in-app browser. Paid chapters are marked locked from the catalog and skipped."
+      }
+    },
+    {
+      "id": "empirenovel",
+      "name": "EmpireNovel",
+      "domains": [
+        "empirenovel.com"
+      ],
+      "status": "human-check",
+      "fetchMode": "browser",
+      "verified": "Verified 2026-11-22 through the in-app browser after one manual Cloudflare tick (remembered afterwards). Chapter URLs are /novel/{slug}/{n}, numbered 1..last.",
+      "input": {
+        "novelUrl": "^https?://(www\\.)?empirenovel\\.com/novel/(?<slug>[a-z0-9-]+)/?$",
+        "chapterUrl": "^https?://(www\\.)?empirenovel\\.com/novel/(?<slug>[a-z0-9-]+)/(?<num>\\d+)",
+        "novelFromChapter": "slug -> {origin}/novel/{slug}"
+      },
+      "novel": {
+        "title": "h1.show_title, h1",
+        "author": "[itemprop='author'] a",
+        "cover": ".cover img@data-src|src",
+        "description": "dd[itemprop='description']",
+        "firstChapter": "a:contains('First Chapter')@href",
+        "latestChapterUrl": "a:contains('Last Chapter')@href"
+      },
+      "toc": {
+        "strategy": "sequential",
+        "pattern": "{novelUrl}/{n}",
+        "from": 1,
+        "to": "latestChapterUrl ~ /(\\d+)/?$",
+        "notes": "The site's own list is 30 per page, newest first (85 pages for a 2,500-chapter novel); numbered URLs avoid all of that."
+      },
+      "chapter": {
+        "title": "#read-novel h3",
+        "content": "#read-novel",
+        "remove": [
+          "script",
+          "iframe",
+          "ins",
+          ".pub"
+        ],
+        "next": "a#chapter-right@href"
+      }
+    },
+    {
+      "id": "scribblehub",
+      "name": "ScribbleHub",
+      "domains": [
+        "scribblehub.com"
+      ],
+      "status": "browser-only",
+      "fetchMode": "browser",
+      "verified": "Verified 2026-11-22 through the in-app browser (Cloudflare let the browser through without a tick).",
+      "input": {
+        "novelUrl": "^https?://(www\\.)?scribblehub\\.com/series/(?<id>\\d+)(/[^/]+)?/?$",
+        "chapterUrl": "^https?://(www\\.)?scribblehub\\.com/read/(?<id>\\d+)-[^/]+/chapter/\\d+",
+        "novelFromChapter": "id -> https://www.scribblehub.com/series/{id}/"
+      },
+      "novel": {
+        "title": ".fic_title",
+        "author": ".auth_name_fic",
+        "cover": ".fic_image img@src",
+        "description": ".wi_fic_desc",
+        "firstChapter": "a:has(span.btn_read)@href"
+      },
+      "toc": {
+        "strategy": "next-link",
+        "notes": "The TOC shows 15 chapters per page, newest first (154 pages for 2,296 chapters), so chapters are found by following Next from chapter 1."
+      },
+      "chapter": {
+        "title": ".chapter-title",
+        "content": "#chp_raw",
+        "remove": [
+          "script",
+          ".wi_authornotes",
+          "h1:empty"
+        ],
+        "next": "a.btn-next@href"
+      }
+    }
+  ],
+  "generic": {
+    "notes": "Used for any URL that matches no profile, and as the fallback when a profile's selectors find nothing.",
+    "novel": "JSON-LD (Book/CreativeWork) -> og:* meta -> first <h1>",
+    "toc": "The largest group of same-pattern links containing 'chapter' -> else follow next links from the chapter the user gave",
+    "chapter": "The element with the most direct <p> text (readability-style), minus nav/ads/comments",
+    "next": "link[rel=next], a[rel=next], #next_chap, #next_url, a:contains('Next')"
+  }
+}

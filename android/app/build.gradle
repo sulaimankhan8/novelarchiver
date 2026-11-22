@@ -1,0 +1,82 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Release signing reads android/keystore.properties (never committed):
+//   storeFile=C:/Users/you/novelarchiver-release.jks
+//   storePassword=...
+//   keyAlias=novelarchiver
+//   keyPassword=...
+// For a local test of the minified release build without your key, run
+// gradle with -PdebugSign (signs with the debug key; not for sharing).
+def keystoreProps = new Properties()
+def keystoreFile = rootProject.file('keystore.properties')
+if (keystoreFile.exists()) {
+    keystoreFile.withInputStream { keystoreProps.load(it) }
+}
+
+android {
+    namespace 'com.novelarchiver.app'
+    compileSdk 36
+
+    defaultConfig {
+        resValue "bool", "webview_inspectable", "false"
+        applicationId "com.novelarchiver.app"
+        minSdk 24
+        targetSdk 35
+        versionCode 2
+        versionName "2.0.0"
+    }
+
+    signingConfigs {
+        release {
+            if (keystoreProps['storeFile']) {
+                storeFile file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (keystoreProps['storeFile']) {
+                signingConfig signingConfigs.release
+            } else if (project.hasProperty('debugSign')) {
+                // Local test build: shrunk exactly like a real release, but signed
+                // with the debug key and with WebView inspection switched on.
+                signingConfig signingConfigs.debug
+                resValue "bool", "webview_inspectable", "true"
+            }
+        }
+        debug {
+            applicationIdSuffix ".debug"
+            debuggable true
+        }
+    }
+    sourceSets {
+        main {
+            // The shared desktop frontend is the app's UI (served at the asset root).
+            assets.srcDirs = ['src/main/assets', '../../frontend']
+        }
+    }
+    aaptOptions {
+        ignoreAssetsPattern '!wailsjs:!*.bak:!.*'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.webkit:webkit:1.12.1'
+    // Go core (gomobile bind ./mobile), built by build_apk.ps1
+    implementation fileTree(dir: 'libs', include: ['*.aar'])
+}
