@@ -62,6 +62,8 @@ type Service struct {
 	search   searchCache
 	// translator puts Chinese / Japanese / Korean novels into English.
 	translator *translate.Google
+	// tr translates saved chapters in the background, a few a minute.
+	tr *trickler
 }
 
 type discovered struct {
@@ -90,6 +92,7 @@ func New(root string) *Service {
 	a.translator = translate.NewGoogle()
 	a.arch = &archiver.Archiver{Engine: a.engine, Store: store, Files: httpF, Translator: a.translator}
 	a.loadSettings()
+	a.startTrickle()
 	return a
 }
 
@@ -121,6 +124,7 @@ func (a *Service) Shutdown() {
 	a.mu.Lock()
 	a.stopping = true
 	a.queue = nil
+	a.stopTrickle()
 	if a.cancel != nil {
 		a.cancel()
 	}
@@ -204,10 +208,18 @@ type NovelItem struct {
 	CleanCount    int    `json:"cleanCount"`
 	FailedCount   int    `json:"failedCount"`
 	LockedCount   int    `json:"lockedCount"`
-	HasIndex      bool   `json:"hasIndex"`
-	CatalogURL    string `json:"catalogUrl"`
-	SizeBytes     int64  `json:"sizeBytes"`
-	SizeMb        string `json:"sizeMb"`
+	GoneCount     int    `json:"goneCount"`
+	// UntranslatedCount is saved chapters of a foreign novel with no
+	// English copy yet; TitleUntranslated, its title is still the original.
+	UntranslatedCount int  `json:"untranslatedCount"`
+	TitleUntranslated bool `json:"titleUntranslated"`
+	// Translation says how the background translator is getting on (set
+	// while something is left to translate).
+	Translation *TranslateStatus `json:"translation,omitempty"`
+	HasIndex    bool             `json:"hasIndex"`
+	CatalogURL  string           `json:"catalogUrl"`
+	SizeBytes   int64            `json:"sizeBytes"`
+	SizeMb      string           `json:"sizeMb"`
 
 	Status     string    `json:"status,omitempty"` // Ongoing, Completed, ...
 	PendingCnt int       `json:"pendingCount"`
@@ -245,12 +257,16 @@ func (a *Service) item(b *library.Book) NovelItem {
 	it := NovelItem{
 		Slug: b.Slug, Title: b.Title, Author: b.Author, Cover: cover, Description: b.Description,
 		URL: b.URL, Site: b.SiteName, TotalChapters: len(b.Chapters),
-		RawCount: ok, CleanCount: ok, FailedCount: failed, LockedCount: locked,
+		RawCount: ok, CleanCount: ok, FailedCount: failed, LockedCount: locked, GoneCount: b.GoneCount(),
+		UntranslatedCount: a.untranslated(b), TitleUntranslated: b.Foreign() && b.OriginalTitle != "" && b.Title == b.OriginalTitle,
 		HasIndex: ok > 0, CatalogURL: "/library/" + b.Slug + "/",
 		SizeBytes: size, SizeMb: fmt.Sprintf("%.1f MB", float64(size)/(1<<20)),
 		Status: b.Status, PendingCnt: pending, RemovedCnt: removed, RevisedCnt: revised,
 		LastRead: r.Chapter, LastReadAt: r.At, AddedAt: b.AddedAt, UpdatedAt: b.UpdatedAt, CheckedAt: b.CheckedAt,
 		CrawlMode: b.TOCMode == "crawl",
+	}
+	if b.Translating() && (it.UntranslatedCount > 0 || it.TitleUntranslated) {
+		it.Translation = a.translateStatus(b.Slug)
 	}
 	if b.Vars != nil {
 		fmt.Sscan(b.Vars["lastNew"], &it.LastNew)
@@ -475,6 +491,59 @@ func (a *Service) RetryNovel(slug string) (map[string]any, error) {
 	return a.enqueue(&job{Kind: "update", Slug: b.Slug, Title: b.Title, URL: b.URL, Cover: a.coverPath(b)})
 }
 
+// TranslatePause is how long Google has asked the app to wait (0: none).
+func (a *Service) TranslatePause() time.Duration {
+	if a.arch == nil {
+		return 0
+	}
+	return translatorPause(a)
+}
+
+// TranslateNovel moves a foreign novel to the front of the background
+// translator's line. It still goes a few chapters a minute.
+func (a *Service) TranslateNovel(slug string) (map[string]any, error) {
+	if err := a.ready(); err != nil {
+		return nil, err
+	}
+	b, err := a.store.Load(slug)
+	if err != nil {
+		return nil, err
+	}
+	a.translateFirst(b.Slug)
+	return map[string]any{"status": "translating", "translation": a.translateStatus(b.Slug)}, nil
+}
+
+// TranslateChapter translates one saved chapter right away (the chapter
+// being opened in the reader), then puts the next two at the front of the
+// background translator's line.
+func (a *Service) TranslateChapter(ctx context.Context, slug string, n int) error {
+	if err := a.ready(); err != nil {
+		return err
+	}
+	b, err := a.store.Load(slug)
+	if err != nil {
+		return err
+	}
+	if !a.arch.NeedsTranslation(b, n) {
+		return nil // already done (a reload of ?translate=now)
+	}
+	err = a.arch.TranslateChapter(ctx, b, n)
+	a.spend()
+	var next []int
+	for i, c := range b.Chapters {
+		if c.Number == n {
+			for _, nc := range b.Chapters[i+1 : min(i+3, len(b.Chapters))] {
+				next = append(next, nc.Number)
+			}
+			break
+		}
+	}
+	if len(next) > 0 {
+		a.translateFirst(b.Slug, next...)
+	}
+	return err
+}
+
 // RetryMissing queues a quick job that downloads only the chapters whose
 // last download failed. Saved chapters aren't re-checked and chapters you
 // never chose (a range download) aren't added, so retrying three failed
@@ -544,6 +613,13 @@ func (a *Service) AuditNovel(slug string) (map[string]any, error) {
 		"total": len(b.Chapters), "validCount": ok, "invalidCount": failed + pending,
 		"failed": failed, "pending": pending, "locked": locked, "invalid": invalid,
 	}, nil
+}
+
+func (a *Service) untranslated(b *library.Book) int {
+	if a.arch == nil {
+		return 0
+	}
+	return a.arch.Untranslated(b)
 }
 
 // DeleteNovel removes a novel and all its files.

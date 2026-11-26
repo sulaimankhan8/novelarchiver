@@ -581,6 +581,15 @@ main.view { padding: 36px 0 96px; }
 .toast .act { height: 34px; padding: 0 12px; border: 0; border-radius: 6px; background: #F7F3EC; color: #1D1B18; font-size: 13px; font-weight: 600; white-space: nowrap; }
 .toast .act--plain { background: transparent; color: #F7F3EC; text-decoration: underline; }
 .toast .x { width: 32px; height: 32px; border: 0; border-radius: 6px; background: transparent; color: #CFC8BC; display: grid; place-items: center; }
+.toast .acts { display: flex; gap: 8px; flex: none; }
+/* With two buttons on a narrow screen, the buttons get their own row under the message. */
+@media (max-width: 520px) {
+  .toast--multi { flex-wrap: wrap; row-gap: 8px; }
+  .toast--multi .msg { flex: 1 1 0; }
+  .toast--multi .x { order: 1; }
+  .toast--multi .acts { order: 2; flex: 1 1 100%; }
+  .toast--multi .acts .act { flex: 1; height: 40px; }
+}
 
 /* ---------- responsive ---------- */
 @media (max-width: 860px) {
@@ -640,11 +649,14 @@ main.view { padding: 36px 0 96px; }
   .novel-hero h1 { font-size: 26px; line-height: 1.1; }
   .novel-hero .by { font-size: 14px; }
   .facts { gap: 18px; }
-  .actions .btn--primary { width: 100%; height: 52px; }
-  .actions .btn--lg:not(.btn--primary) { flex: 1; height: 44px; padding: 0 10px; }
+  /* Phone actions: Continue across, then a two-by-two grid, so nothing
+     (least of all ⋯) ends up alone on a row. Same pattern as the manga page. */
+  .actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .actions .btn--primary { grid-column: 1 / -1; width: 100%; height: 52px; }
+  .actions .btn--lg:not(.btn--primary) { width: 100%; height: 44px; padding: 0 10px; }
   .actions .wide { display: none; }
-  .actions .aa-btn { flex: none !important; width: 48px; padding: 0 !important; }
-  .actions .icon-btn--line { width: 48px !important; height: 44px !important; }
+  .actions .aa-btn .wide { display: inline; }
+  .actions .icon-btn--line { width: 100% !important; height: 44px !important; }
   .toc li { padding: 0 12px; gap: 10px; }
   .toasts { left: 12px; right: 12px; bottom: 12px; max-width: none; }
   .toast { width: 100%; max-width: none; }
@@ -715,6 +727,8 @@ main.view { padding: 36px 0 96px; }
 
 /* ---------- title search results ---------- */
 .sresults { display: flex; flex-direction: column; gap: 12px; }
+.job--done .job__head { gap: 12px; }
+.job--done .job__name span { display: inline-flex; align-items: center; gap: 4px; }
 .sresults__head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
 .sresults__h { font: 500 20px/1.25 var(--serif); margin: 0; overflow-wrap: anywhere; }
 .sresults__status { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
@@ -762,12 +776,17 @@ main.view { padding: 36px 0 96px; }
   .sgroup__title { font-size: 17px; }
   .sgroup__head { flex-wrap: wrap; }
   .sgroup__countall { flex: 1 1 100%; }
-  .srow { padding: 12px 14px; }
-  .srow__acts .btn { flex: 1; height: 40px; }
-  .srow__acts .btn--ghost { flex: 0 0 auto; }
+  .srow { padding: 10px 14px; gap: 6px 12px; }
+  .srow__latest { display: none; }
+  .srow__acts .btn { flex: 1; height: 38px; }
 }
 
 /* ---------- other-language search and novels ---------- */
 .sresults__langs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
 .sresults__langs .chip:disabled { opacity: .7; cursor: default; }
 .sgroup__orig, .found__orig { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+
+/* Nothing may widen the page: a phone must never scroll sideways. */
+html, body { overflow-x: clip; }
+.top__in > * { flex-shrink: 0; }
+.top__in > .mjobs-pill { flex-shrink: 1; }

@@ -7,6 +7,7 @@ package translate
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,7 +22,15 @@ import (
 
 // ErrBusy means Google is refusing requests for now (rate limit). The
 // original chapter is kept; the next update translates it.
-var ErrBusy = errors.New("Google Translate is limiting requests right now; the chapter is saved in its own language and will be translated on the next update")
+var ErrBusy = errors.New("Google Translate asked the app to slow down; the chapter is saved in its own language and is translated by itself once Google allows it again")
+
+// ErrBlocked means Google has blocked this network's translation requests
+// for a while (its "unusual traffic" page). Retrying soon only prolongs
+// it, so the app stops asking for half an hour.
+var ErrBlocked = errors.New("Google Translate is limiting requests from this network for a while (it saw too many). That usually lifts within a few hours; the chapter is saved in its own language and is translated by itself after that")
+
+// statusBlocked is post's status for an answer from the unusual-traffic page.
+const statusBlocked = -1
 
 // quotes fixes Google's TeX-style quotes: Japanese 『』 come back as two
 // backticks and two apostrophes.
@@ -39,7 +48,8 @@ const maxChars = 4500
 // Google calls translate.googleapis.com's free web endpoint.
 type Google struct {
 	Client *http.Client
-	// Gap is the pause between requests (default 400ms).
+	// Gap is the pause between requests (default 1.2 s: at 400 ms Google
+	// flagged the connection after ~260 requests).
 	Gap time.Duration
 	// Endpoint overrides the URL (tests).
 	Endpoint string
@@ -47,12 +57,41 @@ type Google struct {
 	mu          sync.Mutex
 	next        time.Time
 	pausedUntil time.Time
+	// strikes counts refusals close together: each one makes the next
+	// pause longer. An hour without one resets it.
+	strikes    int
+	lastStrike time.Time
 }
+
+// Pauses after Google refuses, growing with each refusal in a row: a
+// "slow down" (429) and a network block (the unusual-traffic page).
+var (
+	busyPauses    = []time.Duration{3 * time.Minute, 10 * time.Minute, 30 * time.Minute, time.Hour}
+	blockedPauses = []time.Duration{30 * time.Minute, time.Hour, 2 * time.Hour, 4 * time.Hour}
+)
 
 // NewGoogle returns a translator with sensible defaults.
 func NewGoogle() *Google {
-	return &Google{Client: &http.Client{Timeout: 30 * time.Second}}
+	return &Google{Client: newClient()}
 }
+
+// newClient speaks HTTP/1.1 only. Google's translate endpoint answers Go's
+// HTTP/2 requests with 429 every time (checked 2026-11-25: the same
+// request over HTTP/1.1 gets 200), so HTTP/2 would look like a rate limit
+// that never ends.
+func newClient() *http.Client {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.ForceAttemptHTTP2 = false
+	tr.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
+	// Offer only HTTP/1.1 in the TLS handshake too, or Google picks h2.
+	tr.TLSClientConfig = &tls.Config{NextProtos: []string{"http/1.1"}}
+	return &http.Client{Timeout: 30 * time.Second, Transport: tr,
+		// A redirect is Google sending us to its unusual-traffic page:
+		// read it as an answer instead of following it.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+}
+
+var defaultClient = newClient()
 
 // Translate translates texts to English. from is a language code ("zh",
 // "ja", "ko") or "" to let Google detect it. Texts are packed into as few
@@ -161,12 +200,19 @@ func (g *Google) call(ctx context.Context, text, from, to string) (string, error
 		}
 		out, status, err := g.post(ctx, text, from, to)
 		if err == nil {
+			g.ok()
 			return out, nil
 		}
-		retry := status == http.StatusTooManyRequests || status >= 500 || status == 0
+		if status == statusBlocked {
+			g.strike(blockedPauses)
+			return "", ErrBlocked
+		}
+		// Google says "slow down" with 429.
+		limited := status == http.StatusTooManyRequests
+		retry := limited || status >= 500 || status == 0
 		if !retry || attempt >= len(backoff) || ctx.Err() != nil {
-			if status == http.StatusTooManyRequests {
-				g.pause(3 * time.Minute)
+			if limited {
+				g.strike(busyPauses)
 				return "", ErrBusy
 			}
 			return "", err
@@ -187,7 +233,7 @@ func (g *Google) wait(ctx context.Context) error {
 	}
 	gap := g.Gap
 	if gap == 0 {
-		gap = 400 * time.Millisecond
+		gap = 1200 * time.Millisecond
 	}
 	at := g.next
 	if now := time.Now(); at.Before(now) {
@@ -203,9 +249,29 @@ func (g *Google) wait(ctx context.Context) error {
 	}
 }
 
-func (g *Google) pause(d time.Duration) {
+// strike pauses after a refusal, longer for each one in a row.
+func (g *Google) strike(pauses []time.Duration) {
 	g.mu.Lock()
-	g.pausedUntil = time.Now().Add(d)
+	defer g.mu.Unlock()
+	now := time.Now()
+	if now.Sub(g.lastStrike) > time.Hour {
+		g.strikes = 0
+	}
+	i := g.strikes
+	if i >= len(pauses) {
+		i = len(pauses) - 1
+	}
+	g.strikes++
+	g.lastStrike = now
+	g.pausedUntil = now.Add(pauses[i])
+}
+
+// ok forgets old refusals once Google has been answering for an hour.
+func (g *Google) ok() {
+	g.mu.Lock()
+	if g.strikes > 0 && time.Since(g.lastStrike) > time.Hour {
+		g.strikes = 0
+	}
 	g.mu.Unlock()
 }
 
@@ -224,7 +290,7 @@ func (g *Google) post(ctx context.Context, text, from, to string) (string, int, 
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36")
 	client := g.Client
 	if client == nil {
-		client = http.DefaultClient
+		client = defaultClient
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -234,6 +300,10 @@ func (g *Google) post(ctx context.Context, text, from, to string) (string, int, 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
 		return "", resp.StatusCode, err
+	}
+	if strings.Contains(resp.Request.URL.Path, "/sorry") || strings.Contains(resp.Header.Get("Location"), "/sorry") ||
+		resp.StatusCode == http.StatusMethodNotAllowed {
+		return "", statusBlocked, ErrBlocked
 	}
 	if resp.StatusCode != http.StatusOK {
 		return "", resp.StatusCode, fmt.Errorf("Google Translate answered HTTP %d", resp.StatusCode)
@@ -256,6 +326,16 @@ func (g *Google) post(ctx context.Context, text, from, to string) (string, int, 
 		return "", resp.StatusCode, fmt.Errorf("Google Translate returned no text")
 	}
 	return quotes.Replace(b.String()), resp.StatusCode, nil
+}
+
+// PausedFor is how much longer Google's refusal pause lasts (0 if none).
+func (g *Google) PausedFor() time.Duration {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if d := time.Until(g.pausedUntil); d > 0 {
+		return d
+	}
+	return 0
 }
 
 // Status describes the translator for logs ("paused for 2m").

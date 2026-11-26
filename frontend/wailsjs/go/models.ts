@@ -102,6 +102,7 @@ export namespace manga {
 	}
 	export class Activity {
 	    current?: Job;
+	    running: Job[];
 	    queue: Job[];
 	
 	    static createFrom(source: any = {}) {
@@ -111,6 +112,7 @@ export namespace manga {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.current = this.convertValues(source["current"], Job);
+	        this.running = this.convertValues(source["running"], Job);
 	        this.queue = this.convertValues(source["queue"], Job);
 	    }
 	
@@ -859,6 +861,24 @@ export namespace service {
 	        this.sizeMb = source["sizeMb"];
 	    }
 	}
+	export class TranslateStatus {
+	    state: string;
+	    resume?: number;
+	    perMin: number;
+	    daily: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TranslateStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.state = source["state"];
+	        this.resume = source["resume"];
+	        this.perMin = source["perMin"];
+	        this.daily = source["daily"];
+	    }
+	}
 	export class NovelDetail {
 	    slug: string;
 	    title: string;
@@ -872,6 +892,10 @@ export namespace service {
 	    cleanCount: number;
 	    failedCount: number;
 	    lockedCount: number;
+	    goneCount: number;
+	    untranslatedCount: number;
+	    titleUntranslated: boolean;
+	    translation?: TranslateStatus;
 	    hasIndex: boolean;
 	    catalogUrl: string;
 	    sizeBytes: number;
@@ -913,6 +937,10 @@ export namespace service {
 	        this.cleanCount = source["cleanCount"];
 	        this.failedCount = source["failedCount"];
 	        this.lockedCount = source["lockedCount"];
+	        this.goneCount = source["goneCount"];
+	        this.untranslatedCount = source["untranslatedCount"];
+	        this.titleUntranslated = source["titleUntranslated"];
+	        this.translation = this.convertValues(source["translation"], TranslateStatus);
 	        this.hasIndex = source["hasIndex"];
 	        this.catalogUrl = source["catalogUrl"];
 	        this.sizeBytes = source["sizeBytes"];
@@ -964,6 +992,10 @@ export namespace service {
 	    cleanCount: number;
 	    failedCount: number;
 	    lockedCount: number;
+	    goneCount: number;
+	    untranslatedCount: number;
+	    titleUntranslated: boolean;
+	    translation?: TranslateStatus;
 	    hasIndex: boolean;
 	    catalogUrl: string;
 	    sizeBytes: number;
@@ -1003,6 +1035,10 @@ export namespace service {
 	        this.cleanCount = source["cleanCount"];
 	        this.failedCount = source["failedCount"];
 	        this.lockedCount = source["lockedCount"];
+	        this.goneCount = source["goneCount"];
+	        this.untranslatedCount = source["untranslatedCount"];
+	        this.titleUntranslated = source["titleUntranslated"];
+	        this.translation = this.convertValues(source["translation"], TranslateStatus);
 	        this.hasIndex = source["hasIndex"];
 	        this.catalogUrl = source["catalogUrl"];
 	        this.sizeBytes = source["sizeBytes"];

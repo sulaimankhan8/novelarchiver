@@ -156,6 +156,7 @@ func (a *Service) worker() {
 		a.emitQueue()
 		a.runJob(ctx, j)
 		cancel()
+		a.wakeTrickle() // chapters it saved may need translating
 		a.mu.Lock()
 		a.cur, a.curState, a.cancel = nil, nil, nil
 		a.mu.Unlock()
